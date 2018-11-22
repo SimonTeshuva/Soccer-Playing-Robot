@@ -1,0 +1,331 @@
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+
+import lejos.nxt.LCD;
+import lejos.nxt.Motor;
+import lejos.nxt.NXTRegulatedMotor;
+import lejos.nxt.SensorPort;
+import lejos.robotics.navigation.Pose;
+import lejos.nxt.comm.*;
+
+public class SoccerPlayerRobot {
+
+
+
+
+	public final static NXTRegulatedMotor LEFT_MOTOR = Motor.B;
+	public final static NXTRegulatedMotor RIGHT_MOTOR = Motor.A;
+	public final static NXTRegulatedMotor CLAW_MOTOR = Motor.C;
+
+	public static final int TRAVEL_SPEED = 20;
+	public static final int FRONT_SENS_DIST_TO_AXIS = -5; // TODO: calibrate
+	public static final int BACK_SENS_DIST_TO_AXIS = 20;  // TODO: calibrate
+
+	public static final int MIN_FRONT_DIST_TO_BALL = 6;
+
+
+	private static long TIMEOUT = 200;
+
+	public IRSeekerThread mSeekerThread;
+	public MovementThread mMoveThread;
+	public SonicThread mSonicFWD;
+	public SonicThread mSonicBWD;
+	public ClawThread mClawThread;
+	public CompassThread mCompassThread;
+
+	private long mNextMeasurementTime;
+	private static boolean goal = false;
+
+	public static float angleToGate = 30;
+
+	public SoccerPlayerRobot () {
+		mSeekerThread = new IRSeekerThread ();
+
+		mSonicFWD = new SonicThread(SensorPort.S2, FRONT_SENS_DIST_TO_AXIS);
+		mSonicBWD = new SonicThread(SensorPort.S3, BACK_SENS_DIST_TO_AXIS);
+
+		mMoveThread = new MovementThread(this, RIGHT_MOTOR, LEFT_MOTOR);
+
+		mClawThread = new ClawThread(this, CLAW_MOTOR);
+
+		mNextMeasurementTime = System.currentTimeMillis();
+
+		mCompassThread = new CompassThread();
+	}
+
+	public boolean goPlay(int hits) throws IOException {
+		mSonicBWD.start();
+		mClawThread.start();
+		mSonicFWD.start();
+		mSeekerThread.start();
+
+		getTheBall();
+		mMoveThread.findSelfPosition();
+		angleToGate = mMoveThread.faceTheGate();
+		hit(hits);
+		goal = mMoveThread.wasGoal();
+
+		return goal;
+
+	}
+
+
+
+	public void toStartAngle() {
+		mClawThread.returnToStart();
+	}
+
+	public void returnToStart() {
+		// can slow down at this point
+		int distF;
+		int distB;
+		mMoveThread.mPilot.setTravelSpeed(TRAVEL_SPEED);
+
+		mMoveThread.rotate(90, true, false);
+		mMoveThread.mPilot.forward();
+		
+		distF = mSonicFWD.getDistance();
+
+		// forward
+		while (mMoveThread.mPilot.isMoving()) {
+			if (System.currentTimeMillis() > mNextMeasurementTime) {
+
+				distF = mSonicFWD.getDistance();
+
+				if(distF < 10)
+					mMoveThread.mPilot.stop();
+
+				Main.show(distF);
+
+				mNextMeasurementTime = System.currentTimeMillis() + TIMEOUT;
+			}
+			Thread.yield();
+		}		
+
+		try {
+			Thread.sleep(500);
+		} catch (InterruptedException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		
+		if(angleToGate > 0)
+			mMoveThread.rotate(0, true, false);
+		else if (angleToGate > 0)
+			mMoveThread.rotate(180, true, false);
+		else
+			mMoveThread.rotate(90, true, false);
+		
+		try {
+			Thread.sleep(500);
+		} catch (InterruptedException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		
+		distB = mSonicBWD.getDistance();
+	
+		try {
+			Thread.sleep(500);
+		} catch (InterruptedException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+	
+		mMoveThread.mPilot.forward();
+
+		while (mMoveThread.mPilot.isMoving()) {
+			if (System.currentTimeMillis() > mNextMeasurementTime) {
+
+				distB = mSonicBWD.getDistance();
+
+				if(distB > 60)
+					mMoveThread.mPilot.stop();
+
+				Main.show(distB);
+
+				mNextMeasurementTime = System.currentTimeMillis() + TIMEOUT;
+			}
+			Thread.yield();
+		}		
+
+
+		try {
+			Thread.sleep(500);
+		} catch (InterruptedException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		
+		mMoveThread.rotate(270, true, false);					
+
+		try {
+			Thread.sleep(5000);
+		} catch (InterruptedException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+	}
+
+
+
+	private void getTheBall() {
+		//mSonicFWD.start();
+		//mSeekerThread.start();
+		//mClawThread.start(); // TODO: write interrupt statement to disable this thread!!!
+		mMoveThread.getTheBall();
+		// Caught the ball - no need for forward sonic and IR anymore
+		mSonicFWD.interrupt();
+		mSeekerThread.interrupt();				
+	}
+
+	public void hit(int hits) {
+		mMoveThread.hit();
+		try {
+			Thread.sleep(500);
+		} catch (InterruptedException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		mClawThread.hit(hits);
+		try {
+			Thread.sleep(3000);
+		} catch (InterruptedException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+	}
+
+	public void testSonics2() {
+		boolean isInterrupted;
+		int[] distances = new int[2];
+
+		mSonicFWD.start();
+
+		mSonicFWD.interrupt();
+		isInterrupted = mSonicFWD.isInterrupted();
+		if (isInterrupted)
+			distances[0] = 1;
+		else
+			distances[0] = 0;
+		isInterrupted = mSonicFWD.interrupted();
+		if (isInterrupted)
+			distances[1] = 1;
+		else
+			distances[1] = 0;
+
+		Main.show(distances);
+
+		try {
+			Thread.sleep(5000);
+		} catch (InterruptedException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+
+	}
+
+	public void testSonics() {
+		mSonicBWD.start();
+		mSonicFWD.start();
+		int[] distances = new int[2];
+		while (true) {
+			if (System.currentTimeMillis() > mNextMeasurementTime) {
+
+				distances[0] = mSonicFWD.getDistance();
+				distances[1] = mSonicBWD.getDistance();
+
+				Main.show(distances);
+
+				mNextMeasurementTime = System.currentTimeMillis() + TIMEOUT;
+			}
+			Thread.yield();
+		}		
+	}
+
+	public void testIRSeeker() {
+		int[] values;
+		while (true) {
+			if (System.currentTimeMillis() > mNextMeasurementTime) {
+
+				values = mSeekerThread.getSensorValues();
+
+				Main.show(values);
+
+				mNextMeasurementTime = System.currentTimeMillis() + TIMEOUT;
+			}
+			Thread.yield();
+		}		
+	}
+
+	public void testRotation() {
+		mMoveThread.mPilot.rotate(90, false);
+	}
+
+	public void testFWDMove() {
+
+		mSonicBWD.start();
+
+		try {
+			Thread.sleep(1000);
+		} catch (InterruptedException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+
+		int firstDist = mSonicBWD.getDistance();
+		mMoveThread.mNavigator.getPoseProvider().setPose(new Pose(0,0,0));
+
+
+		mMoveThread.mNavigator.goTo(100, 0);
+		while (mMoveThread.mNavigator.isMoving()) continue;
+
+		try {
+			Thread.sleep(1000);
+		} catch (InterruptedException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+
+		int secondDist = mSonicBWD.getDistance();
+
+		LCD.clear();
+		Main.show(new int[] {firstDist, secondDist, secondDist - firstDist});
+
+		try {
+			Thread.sleep(3000);
+		} catch (InterruptedException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+	}
+
+	public void testCompass() {
+
+		while (true) {
+			LCD.clear();
+			LCD.drawInt((int)(mCompassThread.getCompassAngle()), 5, 5);				
+			try {
+				Thread.sleep(100);
+			} catch (InterruptedException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+		}
+	}
+
+	public void goaleeCheck() throws IOException{
+		NXTConnection connection = Bluetooth.waitForConnection();
+		DataInputStream dataIn = connection.openDataInputStream();
+		goal = dataIn.readBoolean();
+	}
+
+	public void imHitting() throws IOException{
+		NXTConnection connection = Bluetooth.waitForConnection();
+		DataOutputStream dataOut = connection.openDataOutputStream();
+		dataOut.writeBoolean(true);
+	}
+
+
+}

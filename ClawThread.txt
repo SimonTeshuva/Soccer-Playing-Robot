@@ -1,0 +1,110 @@
+import lejos.nxt.NXTRegulatedMotor;
+
+public class ClawThread extends Thread {
+
+	//TODO: write methods for this class
+	private final int INIT_SPEED = 100;
+	private final int GRAB_SPEED = 300;
+	private final int HIT_SPEED = 300;
+	
+	private final int GRAB_ANGLE = 50;
+	private final int HIT_ANGLE = -80;
+	
+	private static long TIMEOUT = 100;
+		
+	private SoccerPlayerRobot mRobot;
+	private NXTRegulatedMotor mClawMotor;
+	private boolean mIsCalibrated;
+	private int mInitAngle;
+	private long mNextMeasurementTime;
+	private boolean mHasBall;
+	
+	public ClawThread(SoccerPlayerRobot robot, NXTRegulatedMotor clawMotor) {
+		mRobot = robot;
+		mClawMotor = clawMotor;
+		mIsCalibrated = false;
+		mInitAngle = 0;
+		mHasBall = false;
+		mNextMeasurementTime = System.currentTimeMillis();
+	}
+	
+		
+	public void run() {
+		while (!hasBall()) {
+			if (System.currentTimeMillis() > mNextMeasurementTime) {
+				
+				if (mRobot.mSeekerThread.getDirection() == IRSeekerThread.FRONT_DIRECTION &&
+						mRobot.mSonicFWD.getDistance() < SoccerPlayerRobot.MIN_FRONT_DIST_TO_BALL) {
+					grab();
+					ballCaught();
+				}
+				
+				mNextMeasurementTime = System.currentTimeMillis() + TIMEOUT;
+			}
+			Thread.yield();
+		}
+	}
+	
+	private synchronized void ballCaught() {
+		mHasBall = true;
+	}
+	
+	private synchronized void ballReleased() {
+		mHasBall = false;
+	}
+	
+	public synchronized boolean hasBall() {
+		return mHasBall;
+	}
+	
+	public void toInitPosition() {
+		
+		mClawMotor.setSpeed(INIT_SPEED);
+		
+		if (!mIsCalibrated) { // First time calibration
+			mClawMotor.resetTachoCount();
+			mInitAngle = mClawMotor.getTachoCount();
+			mIsCalibrated = true;
+		} else { // Just rotate to initial angle
+			mClawMotor.rotateTo(mInitAngle);
+		}
+		
+		mClawMotor.flt();
+		
+	}
+	
+	public void returnToStart(){
+		mClawMotor.setAcceleration(GRAB_SPEED);
+		mClawMotor.setSpeed(HIT_SPEED);
+		mClawMotor.rotate(75, false);
+	
+		
+	}
+	public void grab() {
+		mClawMotor.setSpeed(GRAB_SPEED);
+		mClawMotor.rotate(GRAB_ANGLE-10);		
+		mClawMotor.stop();
+	}
+	
+	public void startAngle(){
+		mClawMotor.rotate(-60);
+	}
+	
+	public void hit(int hits) {
+		mClawMotor.setAcceleration(20000);
+		mClawMotor.setSpeed(HIT_SPEED);
+		mClawMotor.rotate(HIT_ANGLE, false);
+		ballReleased();
+		mClawMotor.setSpeed(GRAB_SPEED);
+		mClawMotor.rotate(GRAB_ANGLE + 3*hits);	}
+
+	private void goSleep(long timeout) {
+		try {
+			this.sleep(timeout);
+		} catch (InterruptedException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+	}
+}
+ 

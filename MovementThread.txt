@@ -1,0 +1,418 @@
+import java.util.Arrays;
+
+import lejos.nxt.LCD;
+import lejos.nxt.Motor;
+import lejos.nxt.NXTRegulatedMotor;
+import lejos.robotics.localization.OdometryPoseProvider;
+import lejos.robotics.navigation.DifferentialPilot;
+import lejos.robotics.navigation.Move.MoveType;
+import lejos.robotics.navigation.Navigator;
+import lejos.robotics.navigation.Pose;
+
+public class MovementThread extends Thread {
+
+			
+	// --------------------------------------------------
+	// Environment parameters 
+	public final static float COMPASS_0 = 260; // TODO: calibrate this value
+	public final static float COMPASS_90 = 0; // TODO: calibrate this value
+	public final static float COMPASS_180 = 99; // TODO: calibrate this value
+	public final static float COMPASS_270 = 184; // TODO: calibrate this value
+	
+	public final static float GATE_X = 180;
+	public final static float GATE_Y = 65;
+	
+	
+	
+	public final static double LEFT_WHEEL_DIAMETER = 5.5; //TODO: calibrate such that navigator will agree with USsensors
+	public final static double RIGHT_WHEEL_DIAMETER = 5.5; 
+	public final static double TRACK_WIDTH = 14.5;  
+	public final static int ROTATION_SPEED = 60; // degrees per second
+	public final static int TRAVEL_SPEED = 20; // degrees per second
+	public final static int HIT_SPEED = 900; // degrees per second
+	
+	private final static long TIMEOUT = 50;
+	private static int angleToGate;
+	
+	
+	
+	public DifferentialPilot mPilot;
+	public OdometryPoseProvider mPoseProvider;
+	public Navigator mNavigator;
+	
+	private SoccerPlayerRobot mRobot;
+	
+	private long mNextMeasurementTime;
+	
+		
+	public MovementThread(SoccerPlayerRobot robot, 
+			NXTRegulatedMotor rightMotor, NXTRegulatedMotor leftMotor) {
+		
+		mRobot = robot;
+		
+		mPilot = new DifferentialPilot(LEFT_WHEEL_DIAMETER, RIGHT_WHEEL_DIAMETER, TRACK_WIDTH, 
+				leftMotor, rightMotor, false);
+		mPilot.setRotateSpeed(ROTATION_SPEED);
+		mPilot.setTravelSpeed(TRAVEL_SPEED);
+		
+		mPoseProvider = new OdometryPoseProvider(mPilot);
+		
+		mNavigator = new Navigator(mPilot, mPoseProvider);
+	}
+	
+	public void getTheBall() {
+		
+		while (!mRobot.mClawThread.hasBall()) {
+			searchForBall();
+			mPilot.stop();
+			goToBall();
+		}
+	}
+	
+	private void searchForBall() {
+		mNextMeasurementTime = System.currentTimeMillis();
+		
+		int direction = mRobot.mSeekerThread.getDirection();
+		MoveType moveType;
+		float angleIncr;
+		
+		while (!(direction == IRSeekerThread.FRONT_DIRECTION)) {
+			if (System.currentTimeMillis() > mNextMeasurementTime) {
+			
+				direction = mRobot.mSeekerThread.getDirection();
+				moveType = mPilot.getMovement().getMoveType();
+				angleIncr = mPilot.getAngleIncrement();
+				
+				if (direction == 0 && moveType != MoveType.ROTATE) {
+					mPilot.rotate(360, true);
+				}
+				else if (direction < IRSeekerThread.FRONT_DIRECTION && 
+							(moveType != MoveType.ROTATE || angleIncr > 0)) {
+					mPilot.stop();
+					mPilot.rotate(360, true);
+				}
+				else if (direction > IRSeekerThread.FRONT_DIRECTION && 
+							(moveType != MoveType.ROTATE || angleIncr < 0)) {
+					mPilot.stop();
+					mPilot.rotate(-360, true);
+				}
+				
+				mNextMeasurementTime = System.currentTimeMillis() + TIMEOUT;
+			}
+			Thread.yield();
+		}
+		
+		//TODO: REMOVE HIS LEEP TATEMENT!!!
+		try {
+			this.sleep(100);
+		} catch (InterruptedException e) {
+			e.printStackTrace();
+		}
+	}
+	
+	private void goToBall() {
+		mNextMeasurementTime = System.currentTimeMillis();
+		
+		mPilot.forward();
+		
+		int direction;
+		
+		while (!mRobot.mClawThread.hasBall()) {
+			if (System.currentTimeMillis() > mNextMeasurementTime) {
+				direction = mRobot.mSeekerThread.getDirection();
+				
+				if (Math.abs(direction-IRSeekerThread.FRONT_DIRECTION) > 2) {					
+					//steer(direction, true);
+					
+					return; // The ball is too off - begin rotation
+				}
+				else {
+					steer(direction, false);
+				}
+				
+				mNextMeasurementTime = System.currentTimeMillis() + TIMEOUT;
+			}
+			Thread.yield();
+		}
+		
+		mPilot.stop();
+		
+	}
+	
+	public void hit() {
+		mPilot.setTravelSpeed(HIT_SPEED);
+//		mNavigator.getPoseProvider().setPose(new Pose(0,0,0));
+//		mNavigator.goTo(30, 0);
+		mPilot.travel(30, true);
+	}
+	
+	private void steer(int direction, boolean reverse) {
+		
+		final double TURN_RATE_MIN = 90;
+		final double TURN_RATE_NOM = 120;
+		final double TURN_RATE_MAX = 120;
+		
+		
+		double turnRate;
+		double angle = -360;
+		
+		switch (direction) {
+		case 1:
+			turnRate = TURN_RATE_MAX;
+			angle = 360;
+			break;
+		case 2:
+			turnRate = TURN_RATE_MAX;
+			angle = 360;
+			break;
+		case 3:
+			turnRate = TURN_RATE_NOM;
+			angle = 360;
+			break;
+		case 4:
+			turnRate = TURN_RATE_MIN;
+			angle = 360;
+			break;
+		case 5:
+			mPilot.forward();
+			return;
+//			angle = 0;
+//			turnRate = 0;
+//			break;
+		case 6:
+			turnRate = -TURN_RATE_MIN;
+			break;
+		case 7:
+			turnRate = -TURN_RATE_NOM;
+			break;
+		case 8:
+			turnRate = -TURN_RATE_MAX;
+			break;
+		case 9:
+			turnRate = -TURN_RATE_MAX;
+			break;
+		default:
+			angle = 0;
+			turnRate = 0;
+			break;
+		}		
+		
+		if(reverse) {
+			//angle = -angle;
+			turnRate = -turnRate;
+		}
+		
+		
+		mPilot.steer(turnRate, angle, true);
+	}
+	
+	
+	public void findSelfPosition() {
+		
+		int [] xy = new int[2];		
+		xy[0] = Integer.MAX_VALUE;
+		xy[1] = Integer.MAX_VALUE;
+		
+		boolean positionFound = false;
+		
+		float turnTo = COMPASS_0;
+		
+		
+		while(true) {
+			
+			rotate(turnTo, true, false);
+			
+			setCoordinate(turnTo, xy);
+			
+			positionFound = (xy[0] != Integer.MAX_VALUE) && (xy[1] != Integer.MAX_VALUE);
+			
+						
+//			Main.show(new int[]{xy[0], xy[1] ,(int) turnTo});
+//	
+//			try {
+//				sleep(2000);
+//			} catch (InterruptedException e) {
+//				// TODO Auto-generated catch block
+//				e.printStackTrace();
+//			}
+//			
+			if(positionFound)
+				break;
+			
+			switch((int)turnTo) {
+			case (int) COMPASS_0: turnTo = COMPASS_90; break;
+			case (int) COMPASS_90: turnTo = COMPASS_180; break;
+			case (int) COMPASS_180: turnTo = COMPASS_270; break;
+			case (int) COMPASS_270: turnTo = COMPASS_0; break;
+			}
+			
+		}
+		
+		mNavigator.getPoseProvider().setPose(new Pose(xy[0], xy[1], turnTo));
+	
+	}
+	
+	
+	public void rotate(float destAngle, boolean iterativeFix, boolean immediateReturn) {
+		
+		
+		float diffAngle = diffAngle(mRobot.mCompassThread.getCompassAngle(), destAngle);
+
+		
+		if (!iterativeFix) {
+			mPilot.rotate(diffAngle, immediateReturn);
+		} else {
+			while (Math.abs(diffAngle) > 3) {
+				mPilot.rotate(Math.ceil(diffAngle), immediateReturn);
+				diffAngle = diffAngle(mRobot.mCompassThread.getCompassAngle(), destAngle);
+			}
+		}
+		
+	}
+	
+
+	
+	public void setCoordinate(float heading, int [] xy) {
+		
+		int distBWD = mRobot.mSonicBWD.getDistance();
+		
+		if (distBWD <= 0 || distBWD >=255) {
+			Main.show("Bad dist");
+			try {
+				sleep(3000);
+			} catch (InterruptedException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+			return;
+		}
+		
+		switch ((int)heading) {
+		case (int) COMPASS_0:
+			xy[0] = distBWD;
+			break;
+		case (int) COMPASS_90:
+			xy[1] = distBWD;
+			break;
+		case (int) COMPASS_180:
+			xy[0] = -distBWD;
+			break;
+		case (int) COMPASS_270:
+			xy[1] = -distBWD;
+			break;
+		default:
+			LCD.drawString("bad angle", 5, 5);
+			try {
+				sleep(3000);
+			} catch (InterruptedException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+			System.exit(1);
+			break;
+		}
+		
+	}
+	
+	public float diffAngle(float currAngle, float destAngle) {
+		float diff = destAngle%360 - currAngle%360;
+		if (destAngle > currAngle) {
+			if (diff <= 180) {
+				return diff;
+			} else {
+				return diff - 360;
+			}
+		} else {
+			if (diff >= -180) {
+				return diff;
+			} else {
+				return diff + 360;
+			}
+		}
+	}
+	
+	public float faceTheGate() {
+		
+		float x = mNavigator.getPoseProvider().getPose().getX();
+		float y = mNavigator.getPoseProvider().getPose().getY();
+		
+		float gateX = x > 0 ? GATE_X : 0;
+		float gateY = y > 0 ? GATE_Y : -GATE_Y;
+		
+		float deltaY = gateY - y;
+		
+		float deltaX = gateX - x;
+		
+		angleToGate  = (int) Math.toDegrees(Math.atan2(deltaY, deltaX));
+		
+		Main.show(new int[] {(int) x, (int) deltaX, (int) y, (int) deltaY, angleToGate});
+			
+			try {
+				sleep(4000);
+			} catch (InterruptedException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+	
+		rotate(COMPASS_0, true, false);
+	
+		rotate(COMPASS_0 + angleToGate, true, false);
+		
+		return angleToGate;
+	}
+	
+	public boolean wasGoal(){
+		boolean wasGoal;
+		int direction;
+		
+		try {
+			Thread.sleep(5000);
+		} catch (InterruptedException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		
+		direction = mRobot.mSeekerThread.getSimpleDirection();
+		
+		
+		if (direction != 0){
+			wasGoal = false;
+		}
+		else{
+			rotate(180, true, false);
+			direction = mRobot.mSeekerThread.getSimpleDirection();
+			if (direction != 0){
+				wasGoal = false;
+			}
+			else{
+				wasGoal = true;
+			}
+		}
+		
+		return wasGoal;
+	}
+	
+	public void faceTheWall(int whichWall) {
+		int angleToWall = angleToGate; // just to initialise
+		
+		if (whichWall == 1){
+			if(angleToGate < 0)
+				angleToWall = -90 - angleToGate;
+			else if (angleToGate > 0)
+				angleToWall = 90 - angleToGate;
+			else if (angleToGate == 0) // this case may break it
+				angleToWall = 90;
+		}
+		else if (whichWall == 2){
+			if(angleToGate < 0)
+				angleToWall = -90;
+			else if (angleToGate >= 0)// this may kill it
+				angleToWall = 90;
+		}
+		else
+			angleToWall = 0;
+		
+		rotate(angleToWall, true, false);
+		
+	}
+}

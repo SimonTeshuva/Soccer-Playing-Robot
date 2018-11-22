@@ -1,0 +1,39 @@
+import java.util.Arrays;
+
+import lejos.nxt.SensorPort;
+import lejos.nxt.addon.CompassHTSensor;
+
+public class CompassThread extends Thread {
+
+	
+	private CompassHTSensor mCompass;
+	
+	public static final int SLEEP_INTERVAL = 30;
+	
+	public CompassThread() {
+		mCompass  = new CompassHTSensor(SensorPort.S4);
+	}
+	
+
+	public float getCompassAngle() {
+		
+		float[] readings = new float[Main.NUM_OF_READINGS_TO_AVG];
+		Arrays.fill(readings, Float.MAX_VALUE);
+		
+		int index = 0;
+		
+		while (!Main.consistentArray(readings)) {
+			readings[index] = mCompass.getDegrees();
+			index = (index == Main.NUM_OF_READINGS_TO_AVG - 1) ? 0 : index + 1;
+			try {
+				sleep(SLEEP_INTERVAL);
+			} catch (InterruptedException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+		}
+		
+		return 360 - readings[0];
+	}
+	
+}

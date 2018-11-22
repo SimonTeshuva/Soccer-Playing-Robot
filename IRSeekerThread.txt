@@ -1,0 +1,85 @@
+import java.util.Arrays;
+
+import lejos.nxt.LCD;
+import lejos.nxt.SensorPort;
+import lejos.nxt.addon.IRSeekerV2;
+
+public class IRSeekerThread extends Thread {
+
+	public final static int FRONT_DIRECTION = 5;
+	
+	
+	private static long TIMEOUT = 100;
+	private static int MAX_ATTEMPTS = 10;
+	
+	private IRSeekerV2 mSeeker;
+	private long mNextMeasurementTime;
+	private int[] mSensorValues;
+	private int mDirection = FRONT_DIRECTION ;
+
+	public IRSeekerThread() {
+		mSeeker = new IRSeekerV2(SensorPort.S1, IRSeekerV2.Mode.AC);
+		mNextMeasurementTime = System.currentTimeMillis() + TIMEOUT;
+	}
+
+	public synchronized int getSimpleDirection(){
+		return mSeeker.getDirection();
+	}
+	
+	public void run() {
+		while (true) {
+			if (Thread.interrupted()) {
+				// We've been interrupted: terminate.
+				return;
+			} else if (System.currentTimeMillis() > mNextMeasurementTime) {
+//				mSensorValues = mSeeker.getSensorValues();
+//				Main.show(mSensorValues);
+				
+				setDirection();
+				
+				//Main.show(mDirection);
+				
+				mNextMeasurementTime = System.currentTimeMillis() + TIMEOUT;
+			}
+			Thread.yield();
+		}
+	}
+		
+	private synchronized void setDirection() {
+		
+		int[] directions = new int[Main.NUM_OF_READINGS_TO_AVG];
+		
+		Arrays.fill(directions, Integer.MAX_VALUE);
+		
+		int index = 0;
+		int attempts = 0;
+		
+		while (!Main.consistentArray(directions) && attempts < MAX_ATTEMPTS) {
+			directions[index] = mSeeker.getDirection();
+			index = (index == Main.NUM_OF_READINGS_TO_AVG - 1) ? 0 : index + 1;
+			attempts++;
+			try {
+				sleep(30);
+			} catch (InterruptedException e) {
+				// We've been interrupted: terminate.
+				return;
+			}
+		}
+		
+		// If obtained consistent direction before reached attempts ceiling - update direction
+		if (attempts < MAX_ATTEMPTS)
+			mDirection = directions[0];
+		else
+			Main.show("Bad direction");
+		
+	}
+	
+	public synchronized int getDirection() {
+		return mDirection;
+	}
+
+	public synchronized int[] getSensorValues() {
+		return mSeeker.getSensorValues();
+	}
+	
+}

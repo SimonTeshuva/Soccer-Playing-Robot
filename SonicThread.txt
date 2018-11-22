@@ -1,0 +1,77 @@
+import java.util.Arrays;
+
+import lejos.nxt.SensorPort;
+import lejos.nxt.UltrasonicSensor;
+
+public class SonicThread extends Thread {
+
+	
+	private static long TIMEOUT = 50;
+	private static int MAX_ATTEMPTS = 4;
+	
+	private UltrasonicSensor mSonic;
+	private int mDistOffset;
+	private int mDistance;
+	
+	private long mNextMeasurementTime;
+	
+	public SonicThread(SensorPort port, int distOffset) {
+		mSonic = new UltrasonicSensor(port);
+		mDistOffset = distOffset;
+		
+		mDistance = 300;
+		
+		mNextMeasurementTime = System.currentTimeMillis();
+	}
+	
+	
+	public void run() {
+		while (true) {
+			if (Thread.interrupted()) {
+				// We've been interrupted: terminate.
+				return;
+			}
+			else if (System.currentTimeMillis() > mNextMeasurementTime) {
+				
+				setDistance();
+				
+				mNextMeasurementTime = System.currentTimeMillis() + TIMEOUT;
+			}
+			Thread.yield();
+		}
+	}
+	
+	
+	private synchronized void setDistance() {
+		
+		
+		int[] distances = new int[Main.NUM_OF_READINGS_TO_AVG];
+		
+		Arrays.fill(distances, Integer.MAX_VALUE);
+		
+		int index = 0;
+		int attempts = 0;
+		
+		while (!Main.consistentArray(distances) && attempts < MAX_ATTEMPTS) {
+			distances[index] = mSonic.getDistance();
+			index = (index == Main.NUM_OF_READINGS_TO_AVG - 1) ? 0 : index + 1;
+			attempts++;
+			try {
+				sleep(30);
+			} catch (InterruptedException e) {
+				// We've been interrupted: terminate.
+				return;
+			}
+		}
+		
+		// If obtained consistent distance before reached attempts ceiling - update distance
+		if (attempts < MAX_ATTEMPTS)
+			mDistance = distances[0];
+//		else
+//			Main.show("Bad distance");
+	}
+	
+	public synchronized int getDistance() {
+		return mDistance + mDistOffset;
+	}
+}
